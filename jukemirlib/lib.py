@@ -50,17 +50,17 @@ def get_z(vqvae, audio):
     from . import DEVICE
 
     # don't compute unnecessary discrete encodings
-    if type(audio) == type([]):
-        audio = np.array(audio)[:, : JUKEBOX_SAMPLE_RATE * 25]
-    else:
-        audio = audio[np.newaxis, : JUKEBOX_SAMPLE_RATE * 25]
+    with torch.no_grad():
+        if type(audio) == type([]):
+            audio = np.array(audio)[:, : JUKEBOX_SAMPLE_RATE * 25]
+        else:
+            audio = audio[np.newaxis, : JUKEBOX_SAMPLE_RATE * 25]
+        audio = audio.astype(np.half)
+        audio = torch.from_numpy(audio[..., np.newaxis]).to(device=DEVICE)
+        zs = vqvae.encode(audio)
 
-    audio = torch.from_numpy(audio[..., np.newaxis]).to(device=DEVICE)
-
-    zs = vqvae.encode(audio)
-
-    # get the last level of VQ-VAE tokens
-    z = zs[-1]
+        # get the last level of VQ-VAE tokens
+        z = zs[-1]
 
     return z
 
@@ -250,7 +250,7 @@ def extract(
         VQVAE, TOP_PRIOR = setup_models()
 
     # main function that runs extraction end-to-end.
-
+    print("Models loaded!")
     if layers is None:
         layers = [36]  # by default
 
@@ -278,7 +278,8 @@ def extract(
         empty_cache()
 
     # run vq-vae on the audio to get discretized audio
-    z = get_z(VQVAE, audio)
+    with torch.no_grad():
+        z = get_z(VQVAE, audio)
 
     if force_empty_cache:
         empty_cache()
