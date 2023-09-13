@@ -99,20 +99,46 @@ def get_checkpoint(local_path, remote_prefix):
         wget.download(remote_path, local_path, bar=bar_progress)
 
 
-def load_weights(model, weights_path, device):
+def load_weights(model, weights_path, device, layers_to_extract=None):
     model_weights = torch.load(weights_path, map_location="cpu")
 
-    # load_state_dict, basically
-    for k in tqdm(model_weights["model"].keys()):
-        set_module_tensor_to_device(model, k, device, value=model_weights["model"][k])
+    # custom jukemir stuff
+    if layers_to_extract is None:
+        for k in tqdm(model_weights["model"].keys()):
+            set_module_tensor_to_device(model, k, device, value=model_weights["model"][k])
+    else:
+        # print(model)
+        max_required_layer = max(layers_to_extract) + 1
+        model.prior.transformer._attn_mods = torch.nn.ModuleList([*[model.prior.transformer._attn_mods[i] for i in range(max_required_layer)]])
 
+        model.prior.x_out = torch.nn.Identity()
+        model.prior.loss = torch.nn.Identity()
+        # print(model)
+        max_required_layer = str(max_required_layer)
+        for k in tqdm(model_weights["model"].keys()):
+            # print(f"Loading: {k}")
+            # keys_to_keep += [k]
+            if max_required_layer in k:
+                break
+            set_module_tensor_to_device(model, k, device, value=model_weights["model"][k])
+
+    # model.load_state_dict(model_weights, strict=False)
+        # print(model)
+    # for name, param in model.named_parameters():
+    #     print(f"name: {name}\t is_meta: {param.is_meta}")
+
+    # cpu_tensor = torch.empty_like(meta_t, device='cpu')
     model.to(device)
 
     del model_weights
 
 
-def setup_models(cache_dir=None, remote_prefix=None, device=None, verbose=True):
+def setup_models(cache_dir=None, remote_prefix=None, device=None, verbose=True, layers_to_extract=None):
     global VQVAE, TOP_PRIOR
+
+    # custom jukemir stuff
+    if layers_to_extract is None:
+        layers_to_extract = [36]
 
     if cache_dir is None:
         from .constants import CACHE_DIR
@@ -145,7 +171,7 @@ def setup_models(cache_dir=None, remote_prefix=None, device=None, verbose=True):
     if verbose:
         print("Setting up the VQ-VAE...")
 
-    model = "5b"
+    model = "5b" # "1b_lyrics"#
     hps = Hyperparams()
     hps.sr = 44100
     hps.n_samples = 3 if model == "5b_lyrics" else 8
@@ -180,8 +206,9 @@ def setup_models(cache_dir=None, remote_prefix=None, device=None, verbose=True):
 
     if verbose:
         print("Loading the top prior weights into memory...")
+        print(f"Device is {device}")
 
-    load_weights(TOP_PRIOR, prior_cache_path, device)
+    load_weights(TOP_PRIOR, prior_cache_path, device, layers_to_extract=layers_to_extract)
 
     gc.collect()
     torch.cuda.empty_cache()
